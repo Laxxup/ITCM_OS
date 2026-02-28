@@ -1,0 +1,16 @@
+name: Generar ITCM_OS ISO
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+      - name: Construir ISO
+        run: |
+          sudo bash build.sh
+      - name: Subir ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: ITCM_OS_v1_ISO
+          path: ITCM_OS_v1.iso
