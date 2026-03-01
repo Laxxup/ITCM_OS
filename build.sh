@@ -40,4 +40,4 @@ sudo cp chroot/boot/vmlinuz-* image/live/vmlinuz || echo "Error Kernel"
 sudo cp chroot/boot/initrd.img-* image/live/initrd || echo "Error Initrd"
 
 echo "=== Generando ISO ==="
-grub-mkrescue -o ITCM_OS.iso image
+grub-mkrescue -o ITCM_OS_v1.iso image
