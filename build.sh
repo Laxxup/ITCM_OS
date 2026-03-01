@@ -14,23 +14,23 @@ sudo chroot ./chroot mount -t devtmpfs none /dev
 
 echo "=== PASO 2: Instalando Entorno y LIVE BOOT ==="
 sudo chroot ./chroot apt-get update
-# ¡Agregamos 'git' aquí para poder clonar el tema!
-sudo chroot ./chroot apt-get install -y --no-install-recommends xserver-xorg lxde lightdm lightdm-gtk-greeter network-manager neofetch console-setup live-boot live-config live-config-sysvinit git
+sudo chroot ./chroot apt-get install -y --no-install-recommends xserver-xorg lxde lightdm lightdm-gtk-greeter network-manager neofetch console-setup live-boot live-config live-config-sysvinit git calamares calamares-settings-debian
 
-echo "=== Configurando Usuario y Autologin ==="
-sudo chroot ./chroot groupadd -r autologin || true
-sudo chroot ./chroot useradd -m -c "Alumno ITCM" -G sudo,video,audio,netdev,plugdev,autologin -s /bin/bash alumno
-echo "alumno:alumno" | sudo chroot ./chroot chpasswd
+echo "=== Configurando Autologin ROOT Absoluto ==="
 echo "root:root" | sudo chroot ./chroot chpasswd
 
+# 1. Le decimos a LightDM que el usuario por defecto es root
 sudo mkdir -p ./chroot/etc/lightdm/lightdm.conf.d/
 cat << 'EOF' | sudo tee ./chroot/etc/lightdm/lightdm.conf.d/01_autologin.conf
 [Seat:*]
 autologin-guest=false
-autologin-user=alumno
+autologin-user=root
 autologin-user-timeout=0
-user-session=LXDE
+user-session=lxde
 EOF
+
+# 2. EL HACK: Desactivamos la regla de PAM que bloquea a root en la interfaz gráfica
+sudo chroot ./chroot bash -c "sed -i 's/.*user != root.*/#&/' /etc/pam.d/lightdm-autologin || true"
 
 echo "=== Locales ==="
 echo "es_MX.UTF-8 UTF-8" | sudo tee ./chroot/etc/locale.gen
@@ -40,7 +40,6 @@ echo "America/Monterrey" | sudo tee ./chroot/etc/timezone
 DEBIAN_FRONTEND=noninteractive sudo chroot ./chroot dpkg-reconfigure tzdata
 
 echo "=== Customizando LXDE (Wallpaper y Tema) ==="
-# 1. Inyectando el Wallpaper del ITCM
 sudo mkdir -p ./chroot/usr/share/backgrounds/
 sudo cp wallpaperITCMOS.jpg ./chroot/usr/share/backgrounds/itcm-wallpaper.jpg
 
@@ -59,16 +58,27 @@ show_trash=1
 show_mounts=1
 EOF
 
-# 2. Instalando el LocOS-Atmospheric-Theme
 echo "Clonando e instalando el tema..."
 sudo chroot ./chroot git -c http.sslVerify=false clone https://github.com/Suazo-kun/LocOS-Atmospheric-Theme /tmp/LocOS-Atmospheric-Theme
-# Le quitamos los "sudo" al script original para que no trabe la compilación automatizada
 sudo chroot ./chroot bash -c "cd /tmp/LocOS-Atmospheric-Theme && sed -i 's/sudo //g' install.sh && chmod +x install.sh && ./install.sh"
 sudo rm -rf ./chroot/tmp/LocOS-Atmospheric-Theme
-
-# 3. Aplicando el tema globalmente para que el alumno lo vea al arrancar
 sudo chroot ./chroot bash -c "sed -i 's/sNet\/ThemeName=.*/sNet\/ThemeName=Atmospheric-Theme/g' /etc/xdg/lxsession/LXDE/desktop.conf || true"
-sudo chroot ./chroot bash -c "sed -i '/<theme>/,/<\/theme>/ s/<name>[^<]*<\/name>/<name>Atmospheric-Theme<\/name>/' /etc/xdg/openbox/LXDE-rc.xml || true"
+
+echo "=== Creando Icono de Instalador en el Escritorio ==="
+# Como somos root, la carpeta Desktop ahora vive en /root/Desktop
+sudo mkdir -p ./chroot/root/Desktop
+cat << 'EOF' | sudo tee ./chroot/root/Desktop/Instalar_ITCM_OS.desktop
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Instalar ITCM_OS
+Comment=Instalar el sistema de Madero en el disco duro
+Exec=calamares
+Icon=drive-harddisk
+Terminal=false
+StartupNotify=true
+EOF
+sudo chmod +x ./chroot/root/Desktop/Instalar_ITCM_OS.desktop
 
 echo "=== Limpiando ==="
 sudo chroot ./chroot umount /proc /sys /dev
@@ -87,7 +97,7 @@ mkdir -p image/boot/grub
 cat << 'EOF' | sudo tee image/boot/grub/grub.cfg
 set default=0
 set timeout=5
-menuentry "ITCM_OS Live - Instituto Tecnologico de Ciudad Madero" {
+menuentry "ITCM_OS Live (Root Session) - Tec de Madero" {
     linux /live/vmlinuz boot=live components quiet splash
     initrd /live/initrd
 }
