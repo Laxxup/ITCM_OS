@@ -1,25 +1,30 @@
 #!/bin/bash
-# 1. Instalar herramientas de sistema
-sudo apt-get update
-sudo apt-get install -y debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools
+set -e
+echo "=== Instalando herramientas ==="
+sudo apt-get update -qq
+sudo apt-get install -y -qq debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools wget ca-certificates
 
-# 2. Descargar el script de debootstrap manualmente (Truco Maestro)
-sudo mkdir -p /usr/share/debootstrap/scripts
-sudo wget https://raw.githubusercontent.com/devuan-packages/debootstrap/master/scripts/daedalus -O /usr/share/debootstrap/scripts/daedalus
-sudo chmod 644 /usr/share/debootstrap/scripts/daedalus
+echo "=== Construyendo base Devuan ==="
+sudo debootstrap --variant=minbase --include=linux-image-amd64,systemd-sysv,lxde-core,lightdm,network-manager,sudo,fastfetch,locales,tzdata,console-setup bookworm ./chroot http://deb.devuan.org/merged
 
-# 3. Construir la distro (Forzando la descarga real)
-sudo debootstrap --no-check-gpg --variant=minbase --include=linux-image-amd64,lxde-core,network-manager,sudo,fastfetch daedalus ./chroot http://deb.devuan.org/merged
+echo "=== Configurando locales y timezone ==="
+echo "es_MX.UTF-8 UTF-8" | sudo tee ./chroot/etc/locale.gen
+sudo chroot ./chroot locale-gen
+echo "LANG=es_MX.UTF-8" | sudo tee ./chroot/etc/locale.conf
+echo "America/Monterrey" | sudo tee ./chroot/etc/timezone
+sudo chroot ./chroot dpkg-reconfigure -f noninteractive tzdata
 
-# 4. Inyectar wallpaper
-sudo mkdir -p ./chroot/usr/share/images/desktop-base/
-sudo cp wallpaperITCMOS.jpg ./chroot/usr/share/images/desktop-base/
+echo "=== Inyectando wallpaper ==="
+sudo mkdir -p ./chroot/usr/share/backgrounds/
+sudo cp wallpaperITCMOS.jpg ./chroot/usr/share/backgrounds/itcm-wallpaper.jpg
 
-# 5. Empaquetar el sistema real
+echo "=== Empaquetando squashfs ==="
 mkdir -p image/live
-sudo mksquashfs chroot image/live/filesystem.squashfs -comp xz
+sudo mksquashfs chroot image/live/filesystem.squashfs -comp xz -e boot
 
-# 6. Copiar Kernel y preparar ISO
-sudo cp chroot/boot/vmlinuz* image/live/vmlinuz
-sudo cp chroot/boot/initrd* image/live/initrd
-grub-mkrescue -o ITCM_OS_v1.iso image
+echo "=== Copiando kernel e initrd ==="
+sudo cp chroot/boot/vmlinuz-* image/live/vmlinuz || echo "Error Kernel"
+sudo cp chroot/boot/initrd.img-* image/live/initrd || echo "Error Initrd"
+
+echo "=== Generando ISO ==="
+grub-mkrescue -o ITCM_OS.iso image
