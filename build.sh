@@ -2,7 +2,7 @@
 set -e
 
 # Nombre fijo del ISO (para GitHub Actions y local)
-ISO_NAME="ITCM_OS_latest.iso"
+ISO_NAME="ITCM_OS_v1.iso"
 echo "=== Construyendo ITCM_OS - Versión con autologin corregido ==="
 echo "ISO final se generará como: $ISO_NAME"
 
