@@ -5,8 +5,8 @@ sudo apt-get update -qq
 sudo apt-get install -y -qq debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools wget ca-certificates
 
 echo "=== Construyendo base Devuan Daedalus ==="
-# Usamos daedalus y saltamos la verificacion de firmas para GitHub
-sudo debootstrap --no-check-gpg --variant=minbase --include=linux-image-amd64,systemd-sysv,lxde-core,lightdm,network-manager,sudo,fastfetch,locales,tzdata,console-setup daedalus ./chroot http://deb.devuan.org/merged
+# Usamos el script de 'sid' como puente para descargar daedalus
+sudo debootstrap --no-check-gpg --variant=minbase --include=linux-image-amd64,systemd-sysv,lxde-core,lightdm,network-manager,sudo,fastfetch,locales,tzdata,console-setup daedalus ./chroot http://deb.devuan.org/merged /usr/share/debootstrap/scripts/sid
 
 echo "=== Configurando locales y timezone ==="
 echo "es_MX.UTF-8 UTF-8" | sudo tee ./chroot/etc/locale.gen
