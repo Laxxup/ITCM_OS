@@ -4,6 +4,7 @@
 # Usuario live: diosnicio  → sin contraseña, sudo sin pass, autologin
 
 set -euo pipefail
+set -x
 IFS=$'\n\t'
 
 # ────────────────────────────────────────────────
@@ -91,10 +92,6 @@ apt-get install -y --no-install-recommends \
     plank mousepad galculator htop gparted qpdfview \
     git extrepo || exit 10
 
-# LibreWolf (opcional, no paramos si falla)
-extrepo enable librewolf || true
-apt-get update -qq || true
-apt-get install -y librewolf || echo "LibreWolf no instalado, continuando"
 
 # Locales y zona horaria (Tampico / Cd. Madero)
 echo "es_MX.UTF-8 UTF-8" > /etc/locale.gen
@@ -181,8 +178,7 @@ echo -e "${YELLOW}→ Creando filesystem.squashfs${NC}"
 mkdir -p "${IMAGE_DIR}/live"
 sudo rm -f "${IMAGE_DIR}/live/filesystem.squashfs"
 
-sudo mksquashfs "${CHROOT_DIR}" "${IMAGE_DIR}/live/filesystem.squashfs" \
-    -comp xz -b 1M -Xdict-size 100% -Xbcj x86 \
+sudo mksquashfs "${CHROOT_DIR}" "${IMAGE_DIR}/live/filesystem.squashfs" -comp zstd -e boot/
     -e boot/ || { echo -e "${RED}Fallo squashfs${NC}"; exit 1; }
 
 # ────────────────────────────────────────────────
