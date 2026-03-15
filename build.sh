@@ -187,7 +187,7 @@ sudo rm -f "${IMAGE_DIR}/live/filesystem.squashfs"
 
 sudo mksquashfs "${CHROOT_DIR}" "${IMAGE_DIR}/live/filesystem.squashfs" \
     -comp zstd -b 1M \
-    -e boot proc sys dev run tmp || { echo -e "${RED}Fallo squashfs${NC}"; exit 1; }
+    -e boot || { echo -e "${RED}Fallo squashfs${NC}"; exit 1; }
 
 # ────────────────────────────────────────────────
 # 6. Kernel + initrd
