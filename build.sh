@@ -1,159 +1,246 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+# build.sh - Construcción de DiosnicioOS (Live + Instalador Calamares)
+# Basado en Devuan Daedalus + LXDE + inspirado en Loc-OS
+# Usuario live: diosnicio  → sin contraseña, sudo sin pass, autologin
 
-ISO_NAME="ITCM_OS_v1.iso"
-echo "=== Construyendo ITCM_OS - El Fix Definitivo ==="
+set -euo pipefail
+IFS=$'\n\t'
 
-echo "=== Instalando herramientas necesarias en el host ==="
+# ────────────────────────────────────────────────
+# CONFIGURACIÓN PRINCIPAL
+# ────────────────────────────────────────────────
+
+ISO_NAME="DiosnicioOS_v1.iso"
+CHROOT_DIR="$(pwd)/chroot"
+IMAGE_DIR="$(pwd)/image"
+
+SUITE="daedalus"
+MIRROR="http://deb.devuan.org/merged"
+
+# Colores para salida
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${GREEN}=== Construyendo ${ISO_NAME} - DiosnicioOS ===${NC}"
+
+# ────────────────────────────────────────────────
+# 0. Dependencias host
+# ────────────────────────────────────────────────
+echo -e "${YELLOW}→ Instalando herramientas necesarias...${NC}"
 sudo apt-get update -qq
-sudo apt-get install -y -qq debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin mtools wget ca-certificates
+sudo apt-get install -y -qq --no-install-recommends \
+    debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin \
+    grub-efi-amd64-signed shim-signed mtools dosfstools wget ca-certificates \
+    git || { echo -e "${RED}Error instalando paquetes${NC}"; exit 1; }
 
-echo "=== PASO 1: Construyendo sistema base mínima (Devuan Daedalus) ==="
-sudo rm -rf ./chroot
-# EL PUENTE MÁGICO PARA GITHUB ACTIONS (No lo borres)
-sudo ln -sf /usr/share/debootstrap/scripts/bookworm /usr/share/debootstrap/scripts/daedalus || true
+# ────────────────────────────────────────────────
+# Cleanup automático al salir o fallar
+# ────────────────────────────────────────────────
+cleanup() {
+    echo -e "${YELLOW}→ Desmontando sistemas virtuales...${NC}"
+    sudo umount -R "${CHROOT_DIR}/dev"      2>/dev/null || true
+    sudo umount    "${CHROOT_DIR}/proc"     2>/dev/null || true
+    sudo umount    "${CHROOT_DIR}/sys"      2>/dev/null || true
+    sudo umount    "${CHROOT_DIR}/dev/pts"  2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
-sudo debootstrap --no-check-gpg --variant=minbase \
-    --include=linux-image-amd64,sysvinit-core,sudo,locales,tzdata \
-    daedalus ./chroot http://deb.devuan.org/merged
+# ────────────────────────────────────────────────
+# 1. Sistema base
+# ────────────────────────────────────────────────
+echo -e "${YELLOW}→ Paso 1: debootstrap minbase${NC}"
+sudo rm -rf "${CHROOT_DIR}"
 
-echo "=== Montando sistemas de archivos virtuales ==="
-sudo chroot ./chroot mount -t proc none /proc
-sudo chroot ./chroot mount -t sysfs none /sys
-sudo chroot ./chroot mount -t devtmpfs none /dev
+sudo ln -sf /usr/share/debootstrap/scripts/bookworm \
+           /usr/share/debootstrap/scripts/${SUITE} 2>/dev/null || true
 
-echo "=== PASO 2: Instalando entorno gráfico, live-boot y herramientas ==="
-sudo chroot ./chroot apt-get update -qq
-sudo chroot ./chroot apt-get install -y --no-install-recommends \
-    xserver-xorg lxde lightdm lightdm-gtk-greeter \
-    network-manager neofetch console-setup \
+sudo debootstrap --variant=minbase \
+    --include=linux-image-amd64,sysvinit-core,sudo,locales,tzdata,initramfs-tools \
+    --no-check-gpg \
+    "${SUITE}" "${CHROOT_DIR}" "${MIRROR}" || { echo -e "${RED}debootstrap falló${NC}"; exit 1; }
+
+# ────────────────────────────────────────────────
+# 2. Montajes
+# ────────────────────────────────────────────────
+echo -e "${YELLOW}→ Montando /proc /sys /dev${NC}"
+sudo mkdir -p "${CHROOT_DIR}"/{proc,sys,dev/pts}
+sudo mount -t proc     proc     "${CHROOT_DIR}/proc"
+sudo mount -t sysfs    sysfs    "${CHROOT_DIR}/sys"
+sudo mount --rbind     /dev     "${CHROOT_DIR}/dev"
+sudo mount --make-rslave        "${CHROOT_DIR}/dev"
+sudo mount --bind      /dev/pts "${CHROOT_DIR}/dev/pts"
+sudo mount --make-slave         "${CHROOT_DIR}/dev/pts"
+
+# ────────────────────────────────────────────────
+# 3. Configuración dentro chroot (paquetes + usuario sin pass)
+# ────────────────────────────────────────────────
+echo -e "${YELLOW}→ Instalando paquetes y configurando usuario live${NC}"
+
+sudo chroot "${CHROOT_DIR}" /bin/bash <<'EOF'
+set -e
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update -qq
+apt-get install -y --no-install-recommends \
     live-boot live-config live-config-sysvinit \
-    git calamares calamares-settings-debian \
-    plank mousepad galculator htop gparted qpdfview extrepo
+    xserver-xorg lxde lightdm lightdm-gtk-greeter \
+    network-manager-gnome neofetch console-setup \
+    calamares calamares-settings-debian \
+    plank mousepad galculator htop gparted qpdfview \
+    git extrepo || exit 10
 
-echo "=== Instalando LibreWolf ==="
-sudo chroot ./chroot extrepo enable librewolf
-sudo chroot ./chroot apt-get update -qq
-sudo chroot ./chroot apt-get install -y librewolf
+# LibreWolf (opcional, no paramos si falla)
+extrepo enable librewolf || true
+apt-get update -qq || true
+apt-get install -y librewolf || echo "LibreWolf no instalado, continuando"
 
-echo "=== Configuración de locales y zona horaria ==="
-echo "es_MX.UTF-8 UTF-8" | sudo tee ./chroot/etc/locale.gen
-sudo chroot ./chroot locale-gen
-echo "LANG=es_MX.UTF-8" | sudo tee ./chroot/etc/locale.conf
-echo "America/Monterrey" | sudo tee ./chroot/etc/timezone
-DEBIAN_FRONTEND=noninteractive sudo chroot ./chroot dpkg-reconfigure --frontend noninteractive tzdata
+# Locales y zona horaria (Tampico / Cd. Madero)
+echo "es_MX.UTF-8 UTF-8" > /etc/locale.gen
+locale-gen
+echo "LANG=es_MX.UTF-8" > /etc/locale.conf
+echo "America/Monterrey" > /etc/timezone
+dpkg-reconfigure --frontend noninteractive tzdata
 
-echo "=== CREACIÓN DEL USUARIO Y BYPASS DE SEGURIDAD ==="
-sudo chroot ./chroot groupadd -r autologin || true
-sudo chroot ./chroot groupadd -r nopasswdlogin || true
-# Creamos al usuario 'alumno' y lo metemos a todos los grupos de sistema
-sudo chroot ./chroot useradd -m -c "Alumno ITCM" -G sudo,video,audio,netdev,plugdev,autologin,nopasswdlogin -s /bin/bash alumno
-# Le asignamos la contraseña 'alumno' para saltar el bloqueo de seguridad de PAM
-echo "alumno:alumno" | sudo chroot ./chroot chpasswd
-# Hack maestro: Permitimos que 'alumno' ejecute sudo SIN CONTRASEÑA
-echo "alumno ALL=(ALL) NOPASSWD: ALL" | sudo tee ./chroot/etc/sudoers.d/alumno
-sudo chmod 0440 ./chroot/etc/sudoers.d/alumno
+# Usuario live SIN CONTRASEÑA
+groupadd -r autologin     2>/dev/null || true
+groupadd -r nopasswdlogin 2>/dev/null || true
 
-echo "=== Personalización del sistema (skeleton, tema, fondo, etc.) ==="
-sudo mkdir -p ./chroot/usr/share/backgrounds/
-sudo cp wallpaperITCMOS.jpg ./chroot/usr/share/backgrounds/itcm-wallpaper.jpg 2>/dev/null || true
+useradd -m -c "Usuario DiosnicioOS" \
+    -G sudo,video,audio,netdev,plugdev,cdrom,dip,autologin,nopasswdlogin \
+    -s /bin/bash diosnicio
 
-sudo chroot ./chroot git -c http.sslVerify=false clone https://github.com/Suazo-kun/LocOS-Atmospheric-Theme /tmp/LocOS-Atmospheric-Theme
-sudo chroot ./chroot bash -c "cd /tmp/LocOS-Atmospheric-Theme && sed -i 's/sudo //g' install.sh && chmod +x install.sh && ./install.sh" || true
-sudo rm -rf ./chroot/tmp/LocOS-Atmospheric-Theme
+passwd -d diosnicio   # ¡Sin contraseña!
 
-sudo mkdir -p ./chroot/etc/skel/.config/{pcmanfm/LXDE,lxsession/LXDE,openbox,lxpanel/LXDE/panels,autostart} \
-              ./chroot/etc/skel/Desktop
+echo "diosnicio ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/01-diosnicio-nopasswd
+chmod 0440 /etc/sudoers.d/01-diosnicio-nopasswd
 
-cat << 'EOF' | sudo tee ./chroot/etc/skel/.config/pcmanfm/LXDE/desktop.conf
+# Autologin LightDM
+mkdir -p /etc/lightdm/lightdm.conf.d
+cat <<'EOC' > /etc/lightdm/lightdm.conf.d/99-autologin.conf
+[Seat:*]
+autologin-user=diosnicio
+autologin-user-timeout=0
+user-session=LXDE
+EOC
+
+apt-get clean
+rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+exit 0
+EOF
+
+# ────────────────────────────────────────────────
+# 4. Personalización: wallpaper + launcher Calamares + skel
+# ────────────────────────────────────────────────
+echo -e "${YELLOW}→ Copiando wallpaper y configurando skel${NC}"
+
+sudo mkdir -p "${CHROOT_DIR}/usr/share/backgrounds"
+if [[ -f wallpaperITCMOS.jpg ]]; then
+    sudo cp wallpaperITCMOS.jpg "${CHROOT_DIR}/usr/share/backgrounds/diosnicio-wallpaper.jpg"
+    echo "Wallpaper copiado correctamente"
+else
+    echo -e "${YELLOW}Advertencia: wallpaperITCMOS.jpg no encontrado${NC}"
+fi
+
+# Config básica de fondo en pcmanfm (para /etc/skel)
+sudo mkdir -p "${CHROOT_DIR}/etc/skel/.config/pcmanfm/LXDE"
+cat <<'EOF' | sudo tee "${CHROOT_DIR}/etc/skel/.config/pcmanfm/LXDE/desktop.conf" >/dev/null
 [desktop]
-wallpaper_mode=crop
-wallpaper_common=1
-wallpaper=/usr/share/backgrounds/itcm-wallpaper.jpg
+wallpaper=/usr/share/backgrounds/diosnicio-wallpaper.jpg
+wallpaper_mode=fit
 bgcolor=#000000
-fgcolor=#ffffff
-show_wm_menu=0
-sort=mtime;ascending;
-show_documents=0
-show_trash=1
-show_mounts=1
 EOF
 
-cat << 'EOF' | sudo tee ./chroot/etc/skel/.config/lxsession/LXDE/desktop.conf
-[Session]
-window_manager=openbox-lxde
-[GTK]
-sNet/ThemeName=Atmospheric-Theme
-EOF
-
-sudo cp ./chroot/etc/xdg/openbox/LXDE-rc.xml ./chroot/etc/skel/.config/openbox/lxde-rc.xml 2>/dev/null || true
-sudo sed -i 's/<name>.*<\/name>/<name>Atmospheric-Theme<\/name>/' ./chroot/etc/skel/.config/openbox/lxde-rc.xml 2>/dev/null || true
-
-sudo cp ./chroot/usr/share/lxpanel/profile/LXDE/panels/panel ./chroot/etc/skel/.config/lxpanel/LXDE/panels/panel 2>/dev/null || true
-sudo sed -i 's/edge=bottom/edge=top/g' ./chroot/etc/skel/.config/lxpanel/LXDE/panels/panel 2>/dev/null || true
-
-cat << 'EOF' | sudo tee ./chroot/etc/skel/.config/autostart/plank.desktop
-[Desktop Entry]
-Type=Application
-Exec=plank
-Name=Plank
-EOF
-
-cat << 'EOF' | sudo tee ./chroot/etc/skel/Desktop/Instalar_ITCM_OS.desktop
+# Launcher Instalar en Desktop
+sudo mkdir -p "${CHROOT_DIR}/etc/skel/Desktop"
+cat <<'EOF' | sudo tee "${CHROOT_DIR}/etc/skel/Desktop/Instalar_DiosnicioOS.desktop" >/dev/null
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Instalar ITCM_OS
-Exec=sudo calamares
+Name=Instalar DiosnicioOS
+Exec=pkexec calamares
 Icon=drive-harddisk
 Terminal=false
 StartupNotify=true
 EOF
-sudo chmod +x ./chroot/etc/skel/Desktop/Instalar_ITCM_OS.desktop
+sudo chmod +x "${CHROOT_DIR}/etc/skel/Desktop/Instalar_DiosnicioOS.desktop"
 
-sudo bash -c 'echo "neofetch" >> ./chroot/etc/skel/.bashrc'
+# Neofetch al abrir terminal (opcional)
+echo "neofetch" | sudo tee -a "${CHROOT_DIR}/etc/skel/.bashrc"
 
-# Copiamos la customización directamente a la casa del alumno
-sudo cp -r ./chroot/etc/skel/. ./chroot/home/alumno/
-sudo chroot ./chroot chown -R alumno:alumno /home/alumno
+# Copiar skel a home del usuario
+sudo cp -rT "${CHROOT_DIR}/etc/skel/." "${CHROOT_DIR}/home/diosnicio/"
+sudo chroot "${CHROOT_DIR}" chown -R diosnicio:diosnicio /home/diosnicio
 
-echo "=== Configurando autologin directo como alumno ==="
-sudo mkdir -p ./chroot/etc/lightdm/lightdm.conf.d
-cat << 'EOF' | sudo tee ./chroot/etc/lightdm/lightdm.conf.d/99-live-autologin.conf
-[Seat:*]
-autologin-user=alumno
-autologin-user-timeout=0
-user-session=LXDE
-EOF
+# ────────────────────────────────────────────────
+# 5. SquashFS
+# ────────────────────────────────────────────────
+echo -e "${YELLOW}→ Creando filesystem.squashfs${NC}"
+mkdir -p "${IMAGE_DIR}/live"
+sudo rm -f "${IMAGE_DIR}/live/filesystem.squashfs"
 
-echo "=== Limpiando ==="
-sudo chroot ./chroot umount /proc /sys /dev || true
-sudo chroot ./chroot apt-get clean
-sudo chroot ./chroot apt-get autoclean
+sudo mksquashfs "${CHROOT_DIR}" "${IMAGE_DIR}/live/filesystem.squashfs" \
+    -comp xz -b 1M -Xdict-size 100% -Xbcj x86 \
+    -e boot/ || { echo -e "${RED}Fallo squashfs${NC}"; exit 1; }
 
-echo "=== Empaquetando squashfs ==="
-mkdir -p image/live
-sudo rm -f image/live/filesystem.squashfs
-sudo mksquashfs chroot image/live/filesystem.squashfs -comp xz -e boot
+# ────────────────────────────────────────────────
+# 6. Kernel + initrd
+# ────────────────────────────────────────────────
+echo -e "${YELLOW}→ Copiando kernel e initrd${NC}"
+KERNEL=$(ls -v1 "${CHROOT_DIR}"/boot/vmlinuz-*   | tail -n1)
+INITRD=$(ls -v1 "${CHROOT_DIR}"/boot/initrd.img-* | tail -n1)
 
-echo "=== Kernel e Initrd ==="
-sudo cp chroot/boot/vmlinuz-* image/live/vmlinuz || { echo "Error: kernel no encontrado"; exit 1; }
-sudo cp chroot/boot/initrd.img-* image/live/initrd || { echo "Error: initrd no encontrado"; exit 1; }
+[[ -f "$KERNEL" && -f "$INITRD" ]] || { echo -e "${RED}Kernel/initrd no encontrados${NC}"; exit 1; }
 
-echo "=== Creando GRUB config ==="
-mkdir -p image/boot/grub
-cat << 'EOF' | sudo tee image/boot/grub/grub.cfg
+sudo cp "$KERNEL" "${IMAGE_DIR}/live/vmlinuz"
+sudo cp "$INITRD" "${IMAGE_DIR}/live/initrd"
+
+# ────────────────────────────────────────────────
+# 7. GRUB + EFI
+# ────────────────────────────────────────────────
+echo -e "${YELLOW}→ Preparando GRUB BIOS+UEFI${NC}"
+mkdir -p "${IMAGE_DIR}/boot/grub" "${IMAGE_DIR}/EFI/BOOT"
+
+cat <<'EOF' | sudo tee "${IMAGE_DIR}/boot/grub/grub.cfg" >/dev/null
 set default=0
-set timeout=3
-menuentry "ITCM_OS - Instituto Tecnologico de Ciudad Madero (Live)" {
-    linux /live/vmlinuz boot=live components quiet splash live-config.username=alumno live-config.user-fullname="Alumno ITCM" live-config.locales=es_MX.UTF-8 live-config.keyboard-layouts=latam
+set timeout=4
+
+menuentry "DiosnicioOS - Live" {
+    linux /live/vmlinuz boot=live components quiet splash noeject nosplash locales=es_MX.UTF-8 keyboard-layouts=latam
     initrd /live/initrd
 }
 EOF
 
-echo "=== Generando ISO ==="
-rm -f "$ISO_NAME"
-grub-mkrescue -o "$ISO_NAME" image
+sudo cp /usr/lib/grub/x86_64-efi/bootx64.efi    "${IMAGE_DIR}/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
+sudo cp /usr/lib/shim/shimx64.efi.signed        "${IMAGE_DIR}/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
+sudo cp /usr/lib/grub/x86_64-efi/grubx64.efi    "${IMAGE_DIR}/EFI/BOOT/grubx64.efi"  2>/dev/null || true
 
-echo ""
-echo "¡Construcción finalizada!"
+# ────────────────────────────────────────────────
+# 8. ISO híbrida
+# ────────────────────────────────────────────────
+echo -e "${YELLOW}→ Generando ISO...${NC}"
+rm -f "${ISO_NAME}"
+
+sudo xorriso -as mkisofs \
+    -r -V 'DiosnicioOS_v1' \
+    -o "${ISO_NAME}" \
+    --grub2-mbr /usr/lib/grub/i386-pc/boot_hybrid.img \
+    -partition_offset 16 \
+    --mbr-force-bootable \
+    -append_partition 2 28732ac11ff8d211ba4b00a0c93ec93b --interval:local_fs:0s-15s:zero_mbrpt,zero_gpt,zero_apm:'(hidden)' \
+    -appended_part_as_gpt \
+    -iso_mbr_part_type a2a0d0ebe5b93344987c068b746bfa8f \
+    -c '/boot/boot.cat' \
+    -b '/boot/grub/i386-pc/eltorito.img' \
+    -no-emul-boot -boot-load-size 4 -boot-info-table --grub2-boot-info \
+    -eltorito-alt-boot \
+    -e '--interval:appended_partition_2:::' \
+    -no-emul-boot \
+    "${IMAGE_DIR}"
+
+echo -e "${GREEN}¡Listo!${NC}"
+ls -lh "${ISO_NAME}"
+echo "Usuario: diosnicio   → sin contraseña"
+echo "Prueba en VM: abre Calamares desde el escritorio (debería lanzarse sin pedir pass)"
