@@ -201,12 +201,12 @@ INITRD=$(ls -v1 "${CHROOT_DIR}"/boot/initrd.img-* | tail -n1)
 sudo cp "$KERNEL" "${IMAGE_DIR}/live/vmlinuz"
 sudo cp "$INITRD" "${IMAGE_DIR}/live/initrd"
 # ────────────────────────────────────────────────
-# 7. GRUB + EFI + Legacy BIOS
+# 7. GRUB + EFI + Legacy BIOS + Imagen EFI
 # ────────────────────────────────────────────────
-echo -e "${YELLOW}→ Preparando GRUB BIOS+UEFI${NC}"
+echo -e "${YELLOW}→ Preparando GRUB BIOS+UEFI e imagen EFI${NC}"
 mkdir -p "${IMAGE_DIR}/boot/grub/i386-pc" "${IMAGE_DIR}/EFI/BOOT"
 
-# -- 7.1 Archivos para BIOS Legacy (Faltaba esto) --
+# -- 7.1 Archivos para BIOS Legacy --
 sudo cp -r /usr/lib/grub/i386-pc/* "${IMAGE_DIR}/boot/grub/i386-pc/"
 sudo grub-mkimage -O i386-pc-eltorito -d /usr/lib/grub/i386-pc \
     -o "${IMAGE_DIR}/boot/grub/i386-pc/eltorito.img" \
@@ -227,30 +227,34 @@ EOF
 sudo cp /usr/lib/grub/x86_64-efi/bootx64.efi    "${IMAGE_DIR}/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
 sudo cp /usr/lib/shim/shimx64.efi.signed        "${IMAGE_DIR}/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
 sudo cp /usr/lib/grub/x86_64-efi/grubx64.efi    "${IMAGE_DIR}/EFI/BOOT/grubx64.efi"  2>/dev/null || true
+
+# -- 7.4 Crear imagen FAT32 para la partición EFI (¡La clave para xorriso!) --
+echo -e "${YELLOW}→ Creando efi.img...${NC}"
+dd if=/dev/zero of="${IMAGE_DIR}/boot/grub/efi.img" bs=1M count=4
+mkfs.vfat "${IMAGE_DIR}/boot/grub/efi.img"
+# Copiamos la carpeta EFI recursivamente dentro de la imagen
+mcopy -s -i "${IMAGE_DIR}/boot/grub/efi.img" "${IMAGE_DIR}/EFI" ::/
+
 # ────────────────────────────────────────────────
 # 8. ISO híbrida
 # ────────────────────────────────────────────────
 echo -e "${YELLOW}→ Generando ISO...${NC}"
 rm -f "${ISO_NAME}"
 
+# Usamos banderas estándar de isohybrid en lugar de offsets manuales
 sudo xorriso -as mkisofs \
     -r -V 'DiosnicioOS_v1' \
     -o "${ISO_NAME}" \
-    --grub2-mbr /usr/lib/grub/i386-pc/boot_hybrid.img \
-    -partition_offset 16 \
-    --mbr-force-bootable \
-    -append_partition 2 28732ac11ff8d211ba4b00a0c93ec93b --interval:local_fs:0s-15s:zero_mbrpt,zero_gpt,zero_apm:'(hidden)' \
-    -appended_part_as_gpt \
-    -iso_mbr_part_type a2a0d0ebe5b93344987c068b746bfa8f \
-    -c '/boot/boot.cat' \
-    -b '/boot/grub/i386-pc/eltorito.img' \
-    -no-emul-boot -boot-load-size 4 -boot-info-table --grub2-boot-info \
+    -isohybrid-mbr /usr/lib/grub/i386-pc/boot_hybrid.img \
+    -c boot/boot.cat \
+    -b boot/grub/i386-pc/eltorito.img \
+        -no-emul-boot -boot-load-size 4 -boot-info-table --grub2-boot-info \
     -eltorito-alt-boot \
-    -e '--interval:appended_partition_2:::' \
-    -no-emul-boot \
+    -e boot/grub/efi.img \
+        -no-emul-boot -isohybrid-gpt-basdat \
     "${IMAGE_DIR}"
 
-echo -e "${GREEN}¡Listo!${NC}"
+echo -e "${GREEN}SIUUU LISTOOOO${NC}"
 ls -lh "${ISO_NAME}"
 echo "Usuario: diosnicio   → sin contraseña"
 echo "Prueba en VM: abre Calamares desde el escritorio (debería lanzarse sin pedir pass)"
