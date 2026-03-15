@@ -200,13 +200,19 @@ INITRD=$(ls -v1 "${CHROOT_DIR}"/boot/initrd.img-* | tail -n1)
 
 sudo cp "$KERNEL" "${IMAGE_DIR}/live/vmlinuz"
 sudo cp "$INITRD" "${IMAGE_DIR}/live/initrd"
-
 # ────────────────────────────────────────────────
-# 7. GRUB + EFI
+# 7. GRUB + EFI + Legacy BIOS
 # ────────────────────────────────────────────────
 echo -e "${YELLOW}→ Preparando GRUB BIOS+UEFI${NC}"
-mkdir -p "${IMAGE_DIR}/boot/grub" "${IMAGE_DIR}/EFI/BOOT"
+mkdir -p "${IMAGE_DIR}/boot/grub/i386-pc" "${IMAGE_DIR}/EFI/BOOT"
 
+# -- 7.1 Archivos para BIOS Legacy (Faltaba esto) --
+sudo cp -r /usr/lib/grub/i386-pc/* "${IMAGE_DIR}/boot/grub/i386-pc/"
+sudo grub-mkimage -O i386-pc-eltorito -d /usr/lib/grub/i386-pc \
+    -o "${IMAGE_DIR}/boot/grub/i386-pc/eltorito.img" \
+    -p /boot/grub biosdisk iso9660 normal search
+
+# -- 7.2 Configuración de GRUB --
 cat <<'EOF' | sudo tee "${IMAGE_DIR}/boot/grub/grub.cfg" >/dev/null
 set default=0
 set timeout=4
@@ -217,10 +223,10 @@ menuentry "DiosnicioOS - Live" {
 }
 EOF
 
+# -- 7.3 Archivos para UEFI --
 sudo cp /usr/lib/grub/x86_64-efi/bootx64.efi    "${IMAGE_DIR}/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
 sudo cp /usr/lib/shim/shimx64.efi.signed        "${IMAGE_DIR}/EFI/BOOT/BOOTX64.EFI" 2>/dev/null || true
 sudo cp /usr/lib/grub/x86_64-efi/grubx64.efi    "${IMAGE_DIR}/EFI/BOOT/grubx64.efi"  2>/dev/null || true
-
 # ────────────────────────────────────────────────
 # 8. ISO híbrida
 # ────────────────────────────────────────────────
