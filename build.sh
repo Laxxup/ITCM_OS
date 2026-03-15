@@ -128,6 +128,7 @@ rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 exit 0
 EOF
 
+
 # ────────────────────────────────────────────────
 # 4. Personalización: wallpaper + launcher Calamares + skel
 # ────────────────────────────────────────────────
@@ -140,6 +141,15 @@ if [[ -f wallpaperITCMOS.jpg ]]; then
 else
     echo -e "${YELLOW}Advertencia: wallpaperITCMOS.jpg no encontrado${NC}"
 fi
+
+# ────────────────────────────────────────────────
+# 4.5 Desmontar sistemas de archivos virtuales
+# ────────────────────────────────────────────────
+echo -e "${YELLOW}→ Desmontando /proc /sys /dev antes de comprimir...${NC}"
+sudo umount "${CHROOT_DIR}/dev/pts" 2>/dev/null || true
+sudo umount -l "${CHROOT_DIR}/dev"  2>/dev/null || true
+sudo umount "${CHROOT_DIR}/sys"     2>/dev/null || true
+sudo umount "${CHROOT_DIR}/proc"    2>/dev/null || true
 
 # Config básica de fondo en pcmanfm (para /etc/skel)
 sudo mkdir -p "${CHROOT_DIR}/etc/skel/.config/pcmanfm/LXDE"
@@ -164,9 +174,6 @@ StartupNotify=true
 EOF
 sudo chmod +x "${CHROOT_DIR}/etc/skel/Desktop/Instalar_DiosnicioOS.desktop"
 
-# Neofetch al abrir terminal (opcional)
-echo "neofetch" | sudo tee -a "${CHROOT_DIR}/etc/skel/.bashrc"
-
 # Copiar skel a home del usuario
 sudo cp -rT "${CHROOT_DIR}/etc/skel/." "${CHROOT_DIR}/home/diosnicio/"
 sudo chroot "${CHROOT_DIR}" chown -R diosnicio:diosnicio /home/diosnicio
@@ -178,8 +185,9 @@ echo -e "${YELLOW}→ Creando filesystem.squashfs${NC}"
 mkdir -p "${IMAGE_DIR}/live"
 sudo rm -f "${IMAGE_DIR}/live/filesystem.squashfs"
 
-sudo mksquashfs "${CHROOT_DIR}" "${IMAGE_DIR}/live/filesystem.squashfs" -comp zstd -e boot/
-    -e boot/ || { echo -e "${RED}Fallo squashfs${NC}"; exit 1; }
+sudo mksquashfs "${CHROOT_DIR}" "${IMAGE_DIR}/live/filesystem.squashfs" \
+    -comp zstd -b 1M \
+    -e boot proc sys dev run tmp || { echo -e "${RED}Fallo squashfs${NC}"; exit 1; }
 
 # ────────────────────────────────────────────────
 # 6. Kernel + initrd
