@@ -41,11 +41,12 @@ sudo apt-get install -y -qq --no-install-recommends \
 # ────────────────────────────────────────────────
 cleanup() {
     echo -e "${YELLOW}→ Desmontando sistemas virtuales...${NC}"
-    sudo umount -R "${CHROOT_DIR}/dev"      2>/dev/null || true
-    sudo umount    "${CHROOT_DIR}/proc"     2>/dev/null || true
-    sudo umount    "${CHROOT_DIR}/sys"      2>/dev/null || true
-    sudo umount    "${CHROOT_DIR}/dev/pts"  2>/dev/null || true
-    sudo umount    "${CHROOT_DIR}/run"      2>/dev/null || true
+    # Verificamos si están montados antes de desmontar
+    for dir in dev/pts run sys proc dev; do
+        if mountpoint -q "${CHROOT_DIR}/${dir}"; then
+            sudo umount -l "${CHROOT_DIR}/${dir}" 2>/dev/null || true
+        fi
+    done
 }
 trap cleanup EXIT INT TERM
 
@@ -75,6 +76,8 @@ sudo mount --make-rslave        "${CHROOT_DIR}/dev"
 sudo mount --bind      /dev/pts "${CHROOT_DIR}/dev/pts"
 sudo mount --make-slave         "${CHROOT_DIR}/dev/pts"
 
+
+
 # ────────────────────────────────────────────────
 # 3. Configuración dentro chroot (paquetes + usuario sin pass)
 # ────────────────────────────────────────────────
@@ -83,6 +86,10 @@ sudo mount --bind /run "${CHROOT_DIR}/run"
 sudo chroot "${CHROOT_DIR}" /bin/bash <<'EOF'
 set -e
 export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+# Instalar gnupg primero para que apt-key pueda funcionar
+apt-get install -y --no-install-recommends gnupg
+
 apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 94532124541922FB
 apt-get update -qq
 apt-get install -y --no-install-recommends \
