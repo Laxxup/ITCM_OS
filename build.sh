@@ -134,7 +134,7 @@ cat <<'EOC' > /etc/lightdm/lightdm.conf.d/99-autologin.conf
 [Seat:*]
 autologin-user=diosnicio
 autologin-user-timeout=0
-user-session=LXDE
+user-session=xfce
 EOC
 
 apt-get clean
@@ -167,25 +167,29 @@ sudo umount -l "${CHROOT_DIR}/dev"  2>/dev/null || true
 sudo umount "${CHROOT_DIR}/sys"     2>/dev/null || true
 sudo umount "${CHROOT_DIR}/proc"    2>/dev/null || true
 
-# Configuración global y básica de fondo en pcmanfm
-# 1. Configuración del sistema (Global - ¡Asegura que el LiveCD lo tome!)
-sudo mkdir -p "${CHROOT_DIR}/etc/xdg/pcmanfm/LXDE"
-cat <<'EOF' | sudo tee "${CHROOT_DIR}/etc/xdg/pcmanfm/LXDE/desktop.conf" >/dev/null
-[*]
-wallpaper_mode=fit
-wallpaper_common=1
-wallpaper=/usr/share/backgrounds/diosnicio-wallpaper.jpg
-bgcolor=#000000
-EOF
+# Configuración dinámica de fondo de pantalla para XFCE
+sudo mkdir -p "${CHROOT_DIR}/etc/skel/.config/autostart"
+sudo mkdir -p "${CHROOT_DIR}/usr/local/bin"
 
-# 2. Configuración para /etc/skel (Para cuando se instale el sistema)
-sudo mkdir -p "${CHROOT_DIR}/etc/skel/.config/pcmanfm/LXDE"
-cat <<'EOF' | sudo tee "${CHROOT_DIR}/etc/skel/.config/pcmanfm/LXDE/desktop.conf" >/dev/null
-[*]
-wallpaper_mode=fit
-wallpaper_common=1
-wallpaper=/usr/share/backgrounds/diosnicio-wallpaper.jpg
-bgcolor=#000000
+# Creamos un script que busca todos los monitores activos en XFCE y les pone tu wallpaper
+cat <<'EOF' | sudo tee "${CHROOT_DIR}/usr/local/bin/set-diosnicio-wallpaper" >/dev/null
+#!/bin/bash
+sleep 2 # Esperamos a que el escritorio cargue
+for prop in $(xfconf-query -c xfce4-desktop -l | grep "last-image"); do
+    xfconf-query -c xfce4-desktop -p "$prop" -s /usr/share/backgrounds/diosnicio-wallpaper.jpg
+done
+EOF
+sudo chmod +x "${CHROOT_DIR}/usr/local/bin/set-diosnicio-wallpaper"
+
+# Hacemos que el script se ejecute al iniciar sesión
+cat <<'EOF' | sudo tee "${CHROOT_DIR}/etc/skel/.config/autostart/diosnicio-wallpaper.desktop" >/dev/null
+[Desktop Entry]
+Type=Application
+Name=Aplicar Fondo DiosnicioOS
+Exec=/usr/local/bin/set-diosnicio-wallpaper
+Hidden=false
+NoDisplay=true
+Terminal=false
 EOF
 
 # Launcher Instalar en Desktop
