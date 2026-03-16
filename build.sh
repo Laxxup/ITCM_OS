@@ -45,6 +45,7 @@ cleanup() {
     sudo umount    "${CHROOT_DIR}/proc"     2>/dev/null || true
     sudo umount    "${CHROOT_DIR}/sys"      2>/dev/null || true
     sudo umount    "${CHROOT_DIR}/dev/pts"  2>/dev/null || true
+    sudo umount    "${CHROOT_DIR}/run"      2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -78,11 +79,11 @@ sudo mount --make-slave         "${CHROOT_DIR}/dev/pts"
 # 3. Configuración dentro chroot (paquetes + usuario sin pass)
 # ────────────────────────────────────────────────
 echo -e "${YELLOW}→ Instalando paquetes y configurando usuario live${NC}"
-
+sudo mount --bind /run "${CHROOT_DIR}/run"
 sudo chroot "${CHROOT_DIR}" /bin/bash <<'EOF'
 set -e
 export DEBIAN_FRONTEND=noninteractive
-
+apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 94532124541922FB
 apt-get update -qq
 apt-get install -y --no-install-recommends \
     live-boot live-config live-config-sysvinit \
@@ -91,7 +92,6 @@ apt-get install -y --no-install-recommends \
     calamares calamares-settings-debian \
     plank mousepad galculator htop gparted qpdfview \
     git extrepo || exit 10
-
 
 # Locales y zona horaria (Tampico / Cd. Madero)
 echo "es_MX.UTF-8 UTF-8" > /etc/locale.gen
