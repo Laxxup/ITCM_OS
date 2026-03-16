@@ -150,6 +150,8 @@ EOF
 echo -e "${YELLOW}→ Copiando wallpaper y configurando skel${NC}"
 
 if [[ -f "${SCRIPT_DIR}/wallpaperITCMOS.jpg" ]]; then
+    # ASEGURAR QUE EL DIRECTORIO DESTINO EXISTA ANTES DE COPIAR
+    sudo mkdir -p "${CHROOT_DIR}/usr/share/backgrounds"
     sudo cp "${SCRIPT_DIR}/wallpaperITCMOS.jpg" "${CHROOT_DIR}/usr/share/backgrounds/diosnicio-wallpaper.jpg"
     echo "Wallpaper copiado correctamente"
 else
