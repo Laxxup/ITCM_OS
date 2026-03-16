@@ -40,13 +40,21 @@ sudo apt-get install -y -qq --no-install-recommends \
 # Cleanup automático al salir o fallar
 # ────────────────────────────────────────────────
 cleanup() {
-    echo -e "${YELLOW}→ Desmontando sistemas virtuales...${NC}"
-    # Verificamos si están montados antes de desmontar
+    echo -e "${YELLOW}→ Limpiando el entorno chroot y desmontando sistemas virtuales...${NC}"
+    
+    # 1. Matar cualquier proceso que se haya quedado colgado en el chroot
+    sudo fuser -k "${CHROOT_DIR}" 2>/dev/null || true
+    sleep 1
+    
+    # 2. Desmontar en orden inverso (del más profundo al más general) usando lazy unmount (-l)
     for dir in dev/pts run sys proc dev; do
         if mountpoint -q "${CHROOT_DIR}/${dir}"; then
             sudo umount -l "${CHROOT_DIR}/${dir}" 2>/dev/null || true
         fi
     done
+    
+    # (Opcional) No te recomiendo poner el rm -rf de todo el CHROOT_DIR en el trap 
+    # porque si el script falla, a veces es útil revisar qué quedó adentro para depurar.
 }
 trap cleanup EXIT INT TERM
 
